@@ -221,6 +221,36 @@ mod tests {
     }
 
     #[test]
+    fn test_persona_budget_warn_exceeds_hard_clamped() {
+        // E-008: When a persona sets warn_threshold > hard_limit, the warning path
+        // would be unreachable (the >= hard_limit check fires first). We clamp
+        // warn_threshold down to hard_limit so the warning can still fire.
+        let config_json = serde_json::json!({
+            "active_profile": "test",
+            "profiles": {
+                "test": {"provider": "anthropic", "api_key": "x", "model": "m"}
+            },
+            "personas": {
+                "default": {"prompts": ["base"]},
+                "aggressive": {
+                    "prompts": ["base"],
+                    "limits": {
+                        "token_warn_threshold": 150000,
+                        "token_hard_limit": 120000
+                    }
+                }
+            }
+        });
+        let config: crate::Config = serde_json::from_value(config_json).unwrap();
+        let global = TokenBudget::default();
+
+        let budget = resolve_persona_budget("aggressive", &global, &config);
+        // warn_threshold (150k) > hard_limit (120k) → clamped to 120k
+        assert_eq!(budget.warn_threshold, 120_000);
+        assert_eq!(budget.hard_limit, 120_000);
+    }
+
+    #[test]
     fn test_empty_response_continues_loop_instead_of_breaking() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()

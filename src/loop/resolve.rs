@@ -62,6 +62,11 @@ pub fn resolve_persona_budget(
         .map(|v| v as u32)
         .unwrap_or(global.hard_limit);
 
+    // Clamp warn_threshold to hard_limit so the warning path is never unreachable.
+    // If a persona config sets warn > hard (e.g. by mistake), we clamp rather than
+    // silently making the budget warning a no-op.
+    let warn_threshold = warn_threshold.min(hard_limit);
+
     TokenBudget {
         warn_threshold,
         hard_limit,
