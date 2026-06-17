@@ -74,7 +74,7 @@ mod tests {
     fn test_on_run_start() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         let store = Store::new().unwrap();
         let meta = store.create(None, None, None, None).unwrap();
 
@@ -89,7 +89,7 @@ mod tests {
     fn test_on_run_end() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         let store = Store::new().unwrap();
         let meta = store.create(None, None, None, None).unwrap();
 

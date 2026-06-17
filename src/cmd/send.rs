@@ -175,7 +175,7 @@ mod tests {
     fn test_send_writes_user_message_to_jsonl() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         let temp = TempDir::new().unwrap();
         std::env::set_var("ORCHID_DIR", temp.path().to_string_lossy().to_string());
         write_minimal_config(temp.path(), Some("test-profile"));
@@ -245,7 +245,7 @@ mod tests {
     fn test_fork_errors_when_no_profile_available() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         let temp = TempDir::new().unwrap();
         std::env::set_var("ORCHID_DIR", temp.path().to_string_lossy().to_string());
         // Config with no active_profile.

@@ -46,7 +46,7 @@ mod tests {
     fn test_set_label() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         let temp = TempDir::new().unwrap();
         let orchid_dir = setup(&temp);
         std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
@@ -63,7 +63,7 @@ mod tests {
     fn test_set_updates_metadata() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         let temp = TempDir::new().unwrap();
         let orchid_dir = setup(&temp);
         std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());

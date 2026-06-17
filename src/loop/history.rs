@@ -193,7 +193,7 @@ mod tests {
     fn test_stale_read_replacement() -> Result<(), Box<dyn std::error::Error>> {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
 
         let temp_dir = TempDir::new()?;
         let convo_id = "stale-test-001";

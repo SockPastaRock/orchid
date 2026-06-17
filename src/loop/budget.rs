@@ -65,7 +65,7 @@ mod tests {
     fn test_ok() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         let temp = TempDir::new().unwrap();
         // 30_000 chars / 3 = 10_000 tokens — well under 80k warn threshold
         setup_convo_with_chars(&temp, "c1", 30_000);
@@ -77,7 +77,7 @@ mod tests {
     fn test_warning() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         let temp = TempDir::new().unwrap();
         // 270_000 chars / 3 = 90_000 tokens — above 80k, below 120k
         setup_convo_with_chars(&temp, "c2", 270_000);
@@ -89,7 +89,7 @@ mod tests {
     fn test_exceeded() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         let temp = TempDir::new().unwrap();
         // 390_000 chars / 3 = 130_000 tokens — above 120k hard limit
         setup_convo_with_chars(&temp, "c3", 390_000);

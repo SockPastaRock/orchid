@@ -190,7 +190,7 @@ mod tests {
     fn test_get_orchid_dir_orchid_dir_override() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         env::set_var("ORCHID_DIR", "/tmp/orchid-test");
         env::remove_var("XDG_CONFIG_HOME");
         env::remove_var("HOME");
@@ -203,7 +203,7 @@ mod tests {
     fn test_get_orchid_dir_xdg_config_home() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         env::remove_var("ORCHID_DIR");
         env::set_var("XDG_CONFIG_HOME", "/tmp/xdg");
         env::remove_var("HOME");
@@ -216,7 +216,7 @@ mod tests {
     fn test_get_orchid_dir_home_fallback() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         env::remove_var("ORCHID_DIR");
         env::remove_var("XDG_CONFIG_HOME");
         env::set_var("HOME", "/home/user");

@@ -96,7 +96,7 @@ mod tests {
     fn test_tool_error_returned_to_model_not_propagated() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         let temp = TempDir::new().unwrap();
         let orchid_dir = setup_orchid_dir(&temp);
         std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
@@ -160,7 +160,7 @@ mod tests {
     fn test_provider_error_leaves_convo_idle() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         let temp = TempDir::new().unwrap();
         let orchid_dir = setup_orchid_dir(&temp);
         std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
@@ -224,7 +224,7 @@ mod tests {
     fn test_empty_response_continues_loop_instead_of_breaking() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         let temp = TempDir::new().unwrap();
         let orchid_dir = setup_orchid_dir(&temp);
         std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
@@ -282,7 +282,7 @@ mod tests {
     fn test_whitespace_only_message_triggers_retry() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         let temp = TempDir::new().unwrap();
         let orchid_dir = setup_orchid_dir(&temp);
         std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
@@ -340,7 +340,7 @@ mod tests {
     fn test_pre_send_budget_exceeded_does_not_call_provider() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         let temp = TempDir::new().unwrap();
         let orchid_dir = setup_orchid_dir(&temp);
         std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());

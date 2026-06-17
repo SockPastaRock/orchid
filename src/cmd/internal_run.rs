@@ -29,7 +29,7 @@ mod tests {
     fn test_internal_run_unknown_profile() {
         let _lock = crate::TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
         let temp = TempDir::new().unwrap();
         let dir = temp.path().to_path_buf();
         let config = serde_json::json!({
