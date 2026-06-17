@@ -29,6 +29,8 @@ pub enum Command {
         working_dir: Option<String>,
     },
     Delete(String),
+    Stop(String),
+    Kill(String),
     InternalRun {
         id: String,
         profile: Option<String>,
@@ -188,6 +190,17 @@ pub fn parse_args(args: &[String]) -> Result<(Command, HashMap<String, Option<St
                 .cloned()
                 .ok_or_else(|| "delete requires <id>".to_string())?;
             Command::Delete(id)
+        }
+        "stop" | "kill" => {
+            let id = positional
+                .first()
+                .cloned()
+                .ok_or_else(|| format!("{} requires <id>", cmd_name))?;
+            if cmd_name == "stop" {
+                Command::Stop(id)
+            } else {
+                Command::Kill(id)
+            }
         }
         "__run" => {
             let id = positional

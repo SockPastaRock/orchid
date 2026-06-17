@@ -2,7 +2,7 @@ use crate::cmd::create::resolve_working_dir;
 use crate::convo::{resolve, Store};
 use crate::log::LogWriter;
 use crate::loop_module::run as run_tool_loop;
-use crate::types::{ConvoEvent, MessageEvent, TokenBudget};
+use crate::types::{ConvoEvent, MessageEvent};
 use crate::{get_convo_jsonl_path, get_orchid_dir, load_config};
 use crate::client::create_provider_with_log;
 use serde_json::json;
@@ -91,8 +91,7 @@ pub fn send(
         })?;
         log.debug("provider_init", "ok");
 
-        let budget = TokenBudget::from_limits(&config.limits);
-        run_tool_loop(&convo_id, provider.as_ref(), &budget)?;
+        run_tool_loop(&convo_id, provider.as_ref())?;
 
         let final_meta = store.get(&convo_id)?;
         Ok(json!({

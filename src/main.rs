@@ -47,6 +47,8 @@ fn main() {
             working_dir,
         } => cmd::set(id, label, persona, working_dir),
         Command::Delete(id) => cmd::delete(id),
+        Command::Stop(id) => cmd::stop(id),
+        Command::Kill(id) => cmd::stop(id),
         Command::InternalRun { id, profile } => match cmd::internal_run(&id, &profile) {
             Ok(()) => Ok(serde_json::json!({"status": "ok"})),
             Err(e) => Err(e),

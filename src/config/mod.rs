@@ -20,6 +20,9 @@ pub struct Profile {
     pub model: String,
     #[serde(default)]
     pub max_tokens: Option<u32>,
+    /// Reasoning effort level (e.g., "none", "low", "high").
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
     /// Arbitrary headers injected into every request. Values support `env.<VAR>` indirection.
     #[serde(default)]
     pub headers: HashMap<String, String>,

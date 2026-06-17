@@ -1,5 +1,7 @@
-pub mod anthropic;
 pub mod base;
+pub mod resolve;
+pub mod anthropic;
+pub mod openai;
 
 use crate::config::Profile;
 use crate::provider::{Provider, ProviderError};
@@ -22,6 +24,13 @@ pub fn create_provider_with_log(
     match provider_name {
         "anthropic" => {
             let mut client = anthropic::AnthropicClient::from_profile(profile)?;
+            if let Some(path) = log_path {
+                client = client.with_log(path);
+            }
+            Ok(Arc::new(client))
+        }
+        "openai" => {
+            let mut client = openai::OpenAiClient::from_profile(profile)?;
             if let Some(path) = log_path {
                 client = client.with_log(path);
             }

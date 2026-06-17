@@ -17,6 +17,8 @@ pub struct Response {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
     /// Token usage returned by the provider for this step.
     #[serde(skip_serializing_if = "Option::is_none")]

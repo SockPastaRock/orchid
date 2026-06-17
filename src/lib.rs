@@ -10,7 +10,7 @@ pub mod provider;
 pub mod tools;
 pub mod types;
 pub mod loop_module {
-    pub use crate::r#loop::run;
+    pub use crate::r#loop::run::run;
 }
 
 pub use cli::{parse_args, Command, ConfigSubcommand};

@@ -1,4 +1,3 @@
-use crate::types::TokenBudget;
 use crate::{create_provider, load_config, r#loop};
 
 pub fn internal_run(convo_id: &str, profile: &Option<String>) -> Result<(), String> {
@@ -17,9 +16,7 @@ pub fn internal_run(convo_id: &str, profile: &Option<String>) -> Result<(), Stri
 
     let provider = create_provider(prof).map_err(|e| format!("provider error: {}", e))?;
 
-    let budget = TokenBudget::from_limits(&config.limits);
-
-    r#loop::run(convo_id, provider.as_ref(), &budget)?;
+    r#loop::run(convo_id, provider.as_ref())?;
 
     Ok(())
 }
