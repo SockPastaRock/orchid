@@ -198,6 +198,7 @@ mod tests {
             api_url: "http://localhost:1234/v1/chat/completions".to_string(),
             model: "test-model".to_string(),
             max_tokens: 4096,
+            reasoning_effort: None,
             extra_headers: vec![],
             auth_header: String::new(),
         };
@@ -232,6 +233,7 @@ mod tests {
             api_url: "http://localhost:1234/v1/chat/completions".to_string(),
             model: "test-model".to_string(),
             max_tokens: 4096,
+            reasoning_effort: None,
             extra_headers: vec![],
             auth_header: String::new(),
         };

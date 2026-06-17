@@ -63,6 +63,7 @@ mod tests {
     fn test_response_serialize() {
         let resp = Response {
             message: Some("hello".to_string()),
+            reasoning: None,
             tool_calls: None,
             usage: None,
             model: None,

@@ -106,6 +106,7 @@ mod tests {
         // Step 1: model requests fs_read on /etc/passwd — out of scope for working_dir=/tmp.
         let step1 = Response {
             message: None,
+            reasoning: None,
             tool_calls: Some(vec![ToolCall {
                 id: "call-1".to_string(),
                 name: "fs_read".to_string(),
@@ -117,6 +118,7 @@ mod tests {
         // Step 2: model receives the error and replies with a final message.
         let step2 = Response {
             message: Some("I cannot access that file.".to_string()),
+            reasoning: None,
             tool_calls: None,
             usage: None,
             model: None,
@@ -232,6 +234,7 @@ mod tests {
         // Step 1: model returns empty response (no message, no tool_calls).
         let step1 = Response {
             message: None,
+            reasoning: None,
             tool_calls: None,
             usage: None,
             model: None,
@@ -239,6 +242,7 @@ mod tests {
         // Step 2: model recovers with a final message.
         let step2 = Response {
             message: Some("I apologize for the empty response. How can I help?".to_string()),
+            reasoning: None,
             tool_calls: None,
             usage: None,
             model: None,
@@ -288,6 +292,7 @@ mod tests {
         // Step 1: model returns a whitespace-only message (e.g., "\n\n").
         let step1 = Response {
             message: Some("\n\n".to_string()),
+            reasoning: None,
             tool_calls: None,
             usage: None,
             model: None,
@@ -295,6 +300,7 @@ mod tests {
         // Step 2: model recovers with an actual message.
         let step2 = Response {
             message: Some("Sorry about that. How can I help?".to_string()),
+            reasoning: None,
             tool_calls: None,
             usage: None,
             model: None,

@@ -272,6 +272,10 @@ pub fn run_loop(ctx: &mut LoopContext, provider: &dyn Provider) -> Result<(), St
                 ctx.log.info("run_complete", "");
                 events::append_message(&ctx.meta.id, &message)?;
 
+                if let Some(ref reasoning) = response.reasoning {
+                    events::append_reasoning(&ctx.meta.id, reasoning)?;
+                }
+
                 let updates = crate::convo::MetadataUpdate {
                     last_message: Some(message),
                     ..Default::default()

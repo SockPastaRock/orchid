@@ -64,11 +64,32 @@ pub struct ToolResultEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReasoningEvent {
+    #[serde(rename = "type")]
+    pub event_type: String,
+    pub event_id: String,
+    pub timestamp: DateTime<Utc>,
+    pub reasoning: String,
+}
+
+impl ReasoningEvent {
+    pub fn new(reasoning: String) -> Self {
+        Self {
+            event_type: "reasoning".to_string(),
+            event_id: Uuid::new_v4().to_string(),
+            timestamp: Utc::now(),
+            reasoning,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ConvoEvent {
     Message(MessageEvent),
     ToolCall(ToolCallEvent),
     ToolResult(ToolResultEvent),
+    Reasoning(ReasoningEvent),
 }
 
 impl MessageEvent {

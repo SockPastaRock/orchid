@@ -58,6 +58,7 @@ mod tests {
             base_url: String::new(),
             model: String::new(),
             max_tokens: None,
+            reasoning_effort: None,
             extra: HashMap::new(),
             headers: HashMap::new(),
             env: HashMap::new(),

@@ -171,6 +171,7 @@ mod tests {
             base_url: String::new(),
             model: String::new(),
             max_tokens: None,
+            reasoning_effort: None,
             extra: std::collections::HashMap::new(),
             headers: std::collections::HashMap::new(),
             env: env_vars,

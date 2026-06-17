@@ -98,6 +98,10 @@ pub fn build_message_history(convo_id: &str, log: &DiagLogger) -> Result<Vec<Mes
                 raw_messages.push(raw_msg.clone());
                 messages.push(raw_msg);
             }
+            ConvoEvent::Reasoning(_) => {
+                // Reasoning content is persisted in the file for observability,
+                // but omitted from history since it's internal to the model.
+            }
         }
     }
 
@@ -301,6 +305,9 @@ mod tests {
                         tool_calls: None,
                         tool_result: Some(e.tool_result),
                     });
+                }
+                ConvoEvent::Reasoning(_) => {
+                    // Omitted from history, same as in build_message_history.
                 }
             }
         }
