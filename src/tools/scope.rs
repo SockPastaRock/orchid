@@ -74,10 +74,6 @@ fn expand_vars(s: &str) -> String {
 }
 
 pub fn is_in_scope(path: &str, working_dir: &str) -> bool {
-    if path.starts_with("/tmp") || path.starts_with("/var/folders") {
-        return true;
-    }
-
     let expanded = expand_path(path, working_dir);
     let canonical_path = normalize_path(&expanded);
     let canonical_working = normalize_path(working_dir);
@@ -141,13 +137,20 @@ mod tests {
     }
 
     #[test]
-    fn test_is_in_scope_absolute() {
+    fn test_is_in_scope_tmp_when_working_dir_is_tmp() {
         assert!(is_in_scope("/tmp/test", "/tmp"));
     }
 
     #[test]
-    fn test_is_in_scope_tmp() {
-        assert!(is_in_scope("/tmp/any/path", "/home/user"));
+    fn test_is_in_scope_tmp_outside_working_dir() {
+        // /tmp is no longer implicitly in scope — must be the working dir itself
+        assert!(!is_in_scope("/tmp/any/path", "/home/user"));
+    }
+
+    #[test]
+    fn test_is_in_scope_var_folders_outside_working_dir() {
+        // /var/folders is no longer implicitly in scope
+        assert!(!is_in_scope("/var/folders/abc/x", "/home/user"));
     }
 
     #[test]
