@@ -25,9 +25,9 @@ mod tests {
     use crate::log::LogWriter;
     use crate::provider::{Provider, ProviderError, Response, StreamEvent};
     use crate::types::{ConvoEvent, Message, MessageEvent, ToolCall};
+    use crate::TestEnv;
     use std::fs;
     use std::sync::{Arc, Mutex};
-    use tempfile::TempDir;
 
     struct MockProvider {
         responses: Arc<Mutex<Vec<Response>>>,
@@ -57,7 +57,8 @@ mod tests {
         }
     }
 
-    fn setup_orchid_dir(temp: &TempDir) -> std::path::PathBuf {
+    fn setup_orchid_dir() -> (tempfile::TempDir, std::path::PathBuf) {
+        let temp = tempfile::TempDir::new().unwrap();
         let dir = temp.path().to_path_buf();
         let prompts_dir = dir.join("system-prompts");
         fs::create_dir_all(&prompts_dir).unwrap();
@@ -72,7 +73,7 @@ mod tests {
             }
         });
         fs::write(dir.join("config.json"), config.to_string()).unwrap();
-        dir
+        (temp, dir)
     }
 
     fn create_seeded_convo(orchid_dir: &std::path::Path) -> String {
@@ -94,14 +95,10 @@ mod tests {
 
     #[test]
     fn test_tool_error_returned_to_model_not_propagated() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-        let temp = TempDir::new().unwrap();
-        let orchid_dir = setup_orchid_dir(&temp);
-        std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
+        let (temp, orchid_dir) = setup_orchid_dir();
+        let convo_id = create_seeded_convo(orchid_dir.as_path());
+        let _env = TestEnv::with_dir(temp);
 
-        let convo_id = create_seeded_convo(&orchid_dir);
 
         // Step 1: model requests fs_read on /etc/passwd — out of scope for working_dir=/tmp.
         let step1 = Response {
@@ -158,14 +155,10 @@ mod tests {
 
     #[test]
     fn test_provider_error_leaves_convo_idle() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-        let temp = TempDir::new().unwrap();
-        let orchid_dir = setup_orchid_dir(&temp);
-        std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
+        let (temp, orchid_dir) = setup_orchid_dir();
+        let convo_id = create_seeded_convo(orchid_dir.as_path());
+        let _env = TestEnv::with_dir(temp);
 
-        let convo_id = create_seeded_convo(&orchid_dir);
 
         // Provider returns no responses — first send fails with a network error.
         let provider = MockProvider {
@@ -252,14 +245,10 @@ mod tests {
 
     #[test]
     fn test_empty_response_continues_loop_instead_of_breaking() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-        let temp = TempDir::new().unwrap();
-        let orchid_dir = setup_orchid_dir(&temp);
-        std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
+        let (temp, orchid_dir) = setup_orchid_dir();
+        let convo_id = create_seeded_convo(orchid_dir.as_path());
+        let _env = TestEnv::with_dir(temp);
 
-        let convo_id = create_seeded_convo(&orchid_dir);
 
         // Step 1: model returns empty response (no message, no tool_calls).
         let step1 = Response {
@@ -310,14 +299,10 @@ mod tests {
 
     #[test]
     fn test_whitespace_only_message_triggers_retry() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-        let temp = TempDir::new().unwrap();
-        let orchid_dir = setup_orchid_dir(&temp);
-        std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
+        let (temp, orchid_dir) = setup_orchid_dir();
+        let convo_id = create_seeded_convo(orchid_dir.as_path());
+        let _env = TestEnv::with_dir(temp);
 
-        let convo_id = create_seeded_convo(&orchid_dir);
 
         // Step 1: model returns a whitespace-only message (e.g., "\n\n").
         let step1 = Response {
@@ -368,14 +353,10 @@ mod tests {
 
     #[test]
     fn test_pre_send_budget_exceeded_does_not_call_provider() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-        let temp = TempDir::new().unwrap();
-        let orchid_dir = setup_orchid_dir(&temp);
-        std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
+        let (temp, orchid_dir) = setup_orchid_dir();
+        let convo_id = create_seeded_convo(orchid_dir.as_path());
+        let _env = TestEnv::with_dir(temp);
 
-        let convo_id = create_seeded_convo(&orchid_dir);
 
         // Provider should never be called — if it is, the test fails with "no more responses".
         let provider = MockProvider {

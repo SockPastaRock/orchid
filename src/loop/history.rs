@@ -155,8 +155,9 @@ mod tests {
     use crate::types::{
         ConvoEvent, MessageEvent, ToolCall, ToolCallEvent, ToolResult, ToolResultEvent,
     };
-    use std::fs;
+    use crate::TestEnv;
     use tempfile::TempDir;
+    use std::fs;
 
     #[test]
     fn test_build_empty_history() {
@@ -191,10 +192,6 @@ mod tests {
 
     #[test]
     fn test_stale_read_replacement() -> Result<(), Box<dyn std::error::Error>> {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-
         let temp_dir = TempDir::new()?;
         let convo_id = "stale-test-001";
         let convo_path = temp_dir.path().join("conversations").join(convo_id);
@@ -225,7 +222,7 @@ mod tests {
         }
         let disk_before = fs::read_to_string(&jsonl_path)?;
 
-        std::env::set_var("ORCHID_DIR", temp_dir.path().to_string_lossy().to_string());
+        let _env = TestEnv::with_dir(temp_dir);
         let log = DiagLogger::for_convo(convo_path.clone(), LogLevel::Debug);
         let messages = build_message_history(convo_id, &log)?;
 

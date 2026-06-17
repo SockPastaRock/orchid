@@ -155,6 +155,7 @@ pub fn resolve_env(profile: &Profile) -> HashMap<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TestEnv;
 
     #[test]
     fn test_resolve_env() {
@@ -188,10 +189,8 @@ mod tests {
 
     #[test]
     fn test_get_orchid_dir_orchid_dir_override() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-        env::set_var("ORCHID_DIR", "/tmp/orchid-test");
+        let temp = tempfile::TempDir::new().unwrap();
+        let _env = TestEnv::with_dir(temp);
         env::remove_var("XDG_CONFIG_HOME");
         env::remove_var("HOME");
 
@@ -201,11 +200,9 @@ mod tests {
 
     #[test]
     fn test_get_orchid_dir_xdg_config_home() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-        env::remove_var("ORCHID_DIR");
-        env::set_var("XDG_CONFIG_HOME", "/tmp/xdg");
+        let temp = tempfile::TempDir::new().unwrap();
+        let _env = TestEnv::with_dir(temp);
+        env::remove_var("XDG_CONFIG_HOME");
         env::remove_var("HOME");
 
         let result = get_orchid_dir().unwrap();
@@ -214,12 +211,10 @@ mod tests {
 
     #[test]
     fn test_get_orchid_dir_home_fallback() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-        env::remove_var("ORCHID_DIR");
+        let temp = tempfile::TempDir::new().unwrap();
+        let _env = TestEnv::with_dir(temp);
         env::remove_var("XDG_CONFIG_HOME");
-        env::set_var("HOME", "/home/user");
+        env::remove_var("HOME");
 
         let result = get_orchid_dir().unwrap();
         assert_eq!(result, PathBuf::from("/home/user/.config/orchid"));

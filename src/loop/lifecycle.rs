@@ -69,13 +69,24 @@ pub fn detect_crashed(convo_id: &str) -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TestEnv;
+
+    fn setup() -> (tempfile::TempDir, std::path::PathBuf) {
+        let temp = tempfile::TempDir::new().unwrap();
+        let dir = temp.path().to_path_buf();
+        let config = serde_json::json!({
+            "active_profile": "test",
+            "profiles": {"test": {"provider": "anthropic", "api_key": "x", "model": "m"}}
+        });
+        std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
+        (temp, dir)
+    }
 
     #[test]
     fn test_on_run_start() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-        let store = Store::new().unwrap();
+        let (temp, orchid_dir) = setup();
+        let _env = TestEnv::with_dir(temp);
+        let store = Store::with_base(orchid_dir.join("conversations"));
         let meta = store.create(None, None, None, None).unwrap();
 
         on_run_start(&meta.id).ok();
@@ -87,10 +98,9 @@ mod tests {
 
     #[test]
     fn test_on_run_end() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-        let store = Store::new().unwrap();
+        let (temp, orchid_dir) = setup();
+        let _env = TestEnv::with_dir(temp);
+        let store = Store::with_base(orchid_dir.join("conversations"));
         let meta = store.create(None, None, None, None).unwrap();
 
         on_run_start(&meta.id).ok();

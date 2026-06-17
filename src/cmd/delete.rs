@@ -33,26 +33,23 @@ pub fn delete(id: String) -> Result<serde_json::Value, String> {
 #[cfg(test)]
 mod tests {
     use crate::convo::Store;
-    use tempfile::TempDir;
+    use crate::TestEnv;
 
-    fn setup(temp: &TempDir) -> std::path::PathBuf {
+    fn setup() -> (tempfile::TempDir, std::path::PathBuf) {
+        let temp = tempfile::TempDir::new().unwrap();
         let dir = temp.path().to_path_buf();
         let config = serde_json::json!({
             "active_profile": "test",
             "profiles": {"test": {"provider": "anthropic", "api_key": "x", "model": "m"}}
         });
         std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
-        dir
+        (temp, dir)
     }
 
     #[test]
     fn test_delete_not_found() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-        let temp = TempDir::new().unwrap();
-        let orchid_dir = setup(&temp);
-        std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
+        let (temp, _orchid_dir) = setup();
+        let _env = TestEnv::with_dir(temp);
 
         let fake_id = "a".repeat(32);
         let err = super::delete(fake_id).unwrap_err();
@@ -65,12 +62,8 @@ mod tests {
 
     #[test]
     fn test_delete_creates_archive() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-        let temp = TempDir::new().unwrap();
-        let orchid_dir = setup(&temp);
-        std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
+        let (temp, orchid_dir) = setup();
+        let _env = TestEnv::with_dir(temp);
 
         let convos_dir = orchid_dir.join("conversations");
         let store = Store::with_base(convos_dir.clone());

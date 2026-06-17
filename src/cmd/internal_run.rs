@@ -23,21 +23,18 @@ pub fn internal_run(convo_id: &str, profile: &Option<String>) -> Result<(), Stri
 
 #[cfg(test)]
 mod tests {
-    use tempfile::TempDir;
+    use crate::TestEnv;
 
     #[test]
     fn test_internal_run_unknown_profile() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-        let temp = TempDir::new().unwrap();
+        let temp = tempfile::TempDir::new().unwrap();
         let dir = temp.path().to_path_buf();
         let config = serde_json::json!({
             "active_profile": "default",
             "profiles": {"default": {"provider": "anthropic", "api_key": "x", "model": "m"}}
         });
         std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
-        std::env::set_var("ORCHID_DIR", dir.to_string_lossy().to_string());
+        let _env = TestEnv::with_dir(temp);
 
         let err = super::internal_run("nonexistent_id", &Some("missing-profile".to_string()))
             .unwrap_err();

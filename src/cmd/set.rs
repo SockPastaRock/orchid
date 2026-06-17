@@ -30,26 +30,23 @@ pub fn set(
 #[cfg(test)]
 mod tests {
     use crate::convo::Store;
-    use tempfile::TempDir;
+    use crate::TestEnv;
 
-    fn setup(temp: &TempDir) -> std::path::PathBuf {
+    fn setup() -> (tempfile::TempDir, std::path::PathBuf) {
+        let temp = tempfile::TempDir::new().unwrap();
         let dir = temp.path().to_path_buf();
         let config = serde_json::json!({
             "active_profile": "test",
             "profiles": {"test": {"provider": "anthropic", "api_key": "x", "model": "m"}}
         });
         std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
-        dir
+        (temp, dir)
     }
 
     #[test]
     fn test_set_label() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-        let temp = TempDir::new().unwrap();
-        let orchid_dir = setup(&temp);
-        std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
+        let (temp, orchid_dir) = setup();
+        let _env = TestEnv::with_dir(temp);
 
         let store = Store::with_base(orchid_dir.join("conversations"));
         let meta = store.create(None, None, None, None).unwrap();
@@ -61,12 +58,8 @@ mod tests {
 
     #[test]
     fn test_set_updates_metadata() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .expect("TEST_ENV_LOCK poisoned - a prior test panicked. Check test order.");
-        let temp = TempDir::new().unwrap();
-        let orchid_dir = setup(&temp);
-        std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
+        let (temp, orchid_dir) = setup();
+        let _env = TestEnv::with_dir(temp);
 
         let store = Store::with_base(orchid_dir.join("conversations"));
         let meta = store.create(None, None, None, None).unwrap();
