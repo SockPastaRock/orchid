@@ -5,7 +5,9 @@ pub mod help;
 pub mod internal_run;
 pub mod list;
 pub mod send;
+pub mod server_action;
 pub mod set;
+pub mod stop;
 
 pub use config::{config_current, config_path, config_use};
 pub use create::create;
@@ -14,4 +16,6 @@ pub use help::{help, help_command};
 pub use internal_run::internal_run;
 pub use list::{list, list_personas, list_profiles};
 pub use send::send;
+pub use server_action::server_action;
 pub use set::set;
+pub use stop::stop;

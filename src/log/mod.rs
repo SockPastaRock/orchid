@@ -26,6 +26,7 @@ impl LogWriter {
             ConvoEvent::Message(e) => e.event_id.clone(),
             ConvoEvent::ToolCall(e) => e.event_id.clone(),
             ConvoEvent::ToolResult(e) => e.event_id.clone(),
+            ConvoEvent::Reasoning(e) => e.event_id.clone(),
         };
 
         Ok(event_id)

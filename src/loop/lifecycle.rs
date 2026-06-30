@@ -69,13 +69,16 @@ pub fn detect_crashed(convo_id: &str) -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TestEnv;
 
     #[test]
+    #[serial_test::serial]
     fn test_on_run_start() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let store = Store::new().unwrap();
+        let env = TestEnv::new();
+        let orchid_dir = env.dir();
+        let convos_dir = orchid_dir.join("conversations");
+        std::fs::create_dir_all(&convos_dir).unwrap();
+        let store = Store::with_base(convos_dir);
         let meta = store.create(None, None, None, None).unwrap();
 
         on_run_start(&meta.id).ok();
@@ -86,11 +89,13 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_on_run_end() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let store = Store::new().unwrap();
+        let env = TestEnv::new();
+        let orchid_dir = env.dir();
+        let convos_dir = orchid_dir.join("conversations");
+        std::fs::create_dir_all(&convos_dir).unwrap();
+        let store = Store::with_base(convos_dir);
         let meta = store.create(None, None, None, None).unwrap();
 
         on_run_start(&meta.id).ok();

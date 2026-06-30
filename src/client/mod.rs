@@ -1,5 +1,8 @@
-pub mod anthropic;
 pub mod base;
+pub mod resolve;
+pub mod sse;
+pub mod anthropic;
+pub mod openai;
 
 use crate::config::Profile;
 use crate::provider::{Provider, ProviderError};
@@ -27,6 +30,13 @@ pub fn create_provider_with_log(
             }
             Ok(Arc::new(client))
         }
+        "openai" => {
+            let mut client = openai::OpenAiClient::from_profile(profile)?;
+            if let Some(path) = log_path {
+                client = client.with_log(path);
+            }
+            Ok(Arc::new(client))
+        }
         _ => Err(ProviderError::InvalidResponse(format!(
             "unknown provider: {}",
             provider_name
@@ -49,8 +59,10 @@ mod tests {
             base_url: String::new(),
             model: String::new(),
             max_tokens: None,
+            reasoning_effort: None,
             extra: HashMap::new(),
             headers: HashMap::new(),
+            server_actions: HashMap::new(),
             env: HashMap::new(),
         };
 

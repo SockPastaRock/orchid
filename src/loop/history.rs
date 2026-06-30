@@ -98,6 +98,10 @@ pub fn build_message_history(convo_id: &str, log: &DiagLogger) -> Result<Vec<Mes
                 raw_messages.push(raw_msg.clone());
                 messages.push(raw_msg);
             }
+            ConvoEvent::Reasoning(_) => {
+                // Reasoning content is persisted in the file for observability,
+                // but omitted from history since it's internal to the model.
+            }
         }
     }
 
@@ -151,8 +155,9 @@ mod tests {
     use crate::types::{
         ConvoEvent, MessageEvent, ToolCall, ToolCallEvent, ToolResult, ToolResultEvent,
     };
-    use std::fs;
+    use crate::TestEnv;
     use tempfile::TempDir;
+    use std::fs;
 
     #[test]
     fn test_build_empty_history() {
@@ -186,14 +191,14 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_stale_read_replacement() -> Result<(), Box<dyn std::error::Error>> {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-
-        let temp_dir = TempDir::new()?;
+        let env = TestEnv::new();
+        let base = env.dir();
+        let convos_dir = base.join("conversations");
+        std::fs::create_dir_all(&convos_dir).unwrap();
         let convo_id = "stale-test-001";
-        let convo_path = temp_dir.path().join("conversations").join(convo_id);
+        let convo_path = convos_dir.join(convo_id);
         fs::create_dir_all(&convo_path)?;
         let jsonl_path = convo_path.join("conversation.jsonl");
 
@@ -221,7 +226,6 @@ mod tests {
         }
         let disk_before = fs::read_to_string(&jsonl_path)?;
 
-        std::env::set_var("ORCHID_DIR", temp_dir.path().to_string_lossy().to_string());
         let log = DiagLogger::for_convo(convo_path.clone(), LogLevel::Debug);
         let messages = build_message_history(convo_id, &log)?;
 
@@ -301,6 +305,9 @@ mod tests {
                         tool_calls: None,
                         tool_result: Some(e.tool_result),
                     });
+                }
+                ConvoEvent::Reasoning(_) => {
+                    // Omitted from history, same as in build_message_history.
                 }
             }
         }

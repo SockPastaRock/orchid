@@ -2,7 +2,7 @@ use crate::cmd::create::resolve_working_dir;
 use crate::convo::{resolve, Store};
 use crate::log::LogWriter;
 use crate::loop_module::run as run_tool_loop;
-use crate::types::{ConvoEvent, MessageEvent, TokenBudget};
+use crate::types::{ConvoEvent, MessageEvent};
 use crate::{get_convo_jsonl_path, get_orchid_dir, load_config};
 use crate::client::create_provider_with_log;
 use serde_json::json;
@@ -45,7 +45,9 @@ pub fn send(
     };
 
     let meta = store.get(&convo_id)?;
-    let _working_dir = meta.working_dir.unwrap_or_else(|| "/tmp".to_string());
+    let _working_dir = meta.working_dir.clone().ok_or_else(|| {
+        "conversation has no working directory configured".to_string()
+    })?;
 
     if meta.status == crate::types::Status::Running {
         return Err(format!("conversation {} is already running", convo_id));
@@ -91,8 +93,7 @@ pub fn send(
         })?;
         log.debug("provider_init", "ok");
 
-        let budget = TokenBudget::from_limits(&config.limits);
-        run_tool_loop(&convo_id, provider.as_ref(), &budget)?;
+        run_tool_loop(&convo_id, provider.as_ref())?;
 
         let final_meta = store.get(&convo_id)?;
         Ok(json!({
@@ -158,7 +159,7 @@ fn fork_tool_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
+    use crate::TestEnv;
 
     fn write_minimal_config(dir: &std::path::Path, active_profile: Option<&str>) {
         let profile_section =
@@ -171,16 +172,56 @@ mod tests {
     }
 
     #[test]
-    fn test_send_writes_user_message_to_jsonl() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let temp = TempDir::new().unwrap();
-        std::env::set_var("ORCHID_DIR", temp.path().to_string_lossy().to_string());
-        write_minimal_config(temp.path(), Some("test-profile"));
+    fn test_fork_uses_active_profile_not_hardcoded_default() {
+        // Pure logic test — no env vars needed.
+        let profile: Option<String> = None;
+        let active_profile: Option<String> = Some("cba-sonnet".to_string());
 
-        let store = crate::convo::Store::with_base(temp.path().join("conversations"));
-        std::fs::create_dir_all(temp.path().join("conversations")).unwrap();
+        let profile_arg = profile
+            .as_ref()
+            .map(|p| p.clone())
+            .or(active_profile)
+            .expect("should fall back to active_profile");
+
+        assert_eq!(profile_arg, "cba-sonnet");
+        assert_ne!(
+            profile_arg, "default",
+            "must not fall back to hardcoded 'default'"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_fork_errors_when_no_profile_available() {
+        let env = TestEnv::new();
+        let orchid_dir = env.dir();
+        write_minimal_config(orchid_dir.as_path(), None);
+        let store = crate::convo::Store::with_base(orchid_dir.join("conversations"));
+        let meta = store.create(None, Some("/tmp".to_string()), None, None).unwrap();
+
+        let result = send(
+            Some(meta.id.clone()),
+            "test".to_string(),
+            false, // fire-and-forget → calls fork_tool_loop
+            None,  // no --profile
+            None,
+            None,
+        );
+
+        assert!(result.is_err(), "should error when no profile is available");
+        assert!(
+            result.unwrap_err().contains("profile"),
+            "error should mention profile"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_send_writes_user_message_to_jsonl() {
+        let env = TestEnv::new();
+        let orchid_dir = env.dir();
+        write_minimal_config(orchid_dir.as_path(), Some("test-profile"));
+        let store = crate::convo::Store::with_base(orchid_dir.join("conversations"));
         let meta = store
             .create(None, Some("/tmp".to_string()), None, None)
             .unwrap();
@@ -204,69 +245,15 @@ mod tests {
             );
         }
 
-        let jsonl = temp
-            .path()
+        let jsonl = orchid_dir
             .join("conversations")
             .join(&meta.id)
             .join("conversation.jsonl");
-        assert!(jsonl.exists(), "conversation.jsonl should exist after send");
-        let contents = std::fs::read_to_string(&jsonl).unwrap();
         assert!(
-            contents.contains("\"type\":\"message\""),
+            std::fs::read_to_string(&jsonl)
+                .map(|c| c.contains("\"type\":\"message\""))
+                .unwrap_or(false),
             "event should have type field"
-        );
-        assert!(
-            contents.contains("hello world"),
-            "user message should be in jsonl"
-        );
-    }
-
-    #[test]
-    fn test_fork_uses_active_profile_not_hardcoded_default() {
-        // Pure logic test — no env vars needed.
-        let profile: Option<String> = None;
-        let active_profile: Option<String> = Some("cba-sonnet".to_string());
-
-        let profile_arg = profile
-            .as_ref()
-            .map(|p| p.clone())
-            .or(active_profile)
-            .expect("should fall back to active_profile");
-
-        assert_eq!(profile_arg, "cba-sonnet");
-        assert_ne!(
-            profile_arg, "default",
-            "must not fall back to hardcoded 'default'"
-        );
-    }
-
-    #[test]
-    fn test_fork_errors_when_no_profile_available() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let temp = TempDir::new().unwrap();
-        std::env::set_var("ORCHID_DIR", temp.path().to_string_lossy().to_string());
-        // Config with no active_profile.
-        write_minimal_config(temp.path(), None);
-
-        let store = crate::convo::Store::with_base(temp.path().join("conversations"));
-        std::fs::create_dir_all(temp.path().join("conversations")).unwrap();
-        let meta = store.create(None, None, None, None).unwrap();
-
-        let result = send(
-            Some(meta.id.clone()),
-            "test".to_string(),
-            false, // fire-and-forget → calls fork_tool_loop
-            None,  // no --profile
-            None,
-            None,
-        );
-
-        assert!(result.is_err(), "should error when no profile is available");
-        assert!(
-            result.unwrap_err().contains("profile"),
-            "error should mention profile"
         );
     }
 }

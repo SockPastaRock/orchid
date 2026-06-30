@@ -33,26 +33,11 @@ pub fn delete(id: String) -> Result<serde_json::Value, String> {
 #[cfg(test)]
 mod tests {
     use crate::convo::Store;
-    use tempfile::TempDir;
-
-    fn setup(temp: &TempDir) -> std::path::PathBuf {
-        let dir = temp.path().to_path_buf();
-        let config = serde_json::json!({
-            "active_profile": "test",
-            "profiles": {"test": {"provider": "anthropic", "api_key": "x", "model": "m"}}
-        });
-        std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
-        dir
-    }
+    use crate::TestEnv;
 
     #[test]
     fn test_delete_not_found() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let temp = TempDir::new().unwrap();
-        let orchid_dir = setup(&temp);
-        std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
+        let _env = TestEnv::new();
 
         let fake_id = "a".repeat(32);
         let err = super::delete(fake_id).unwrap_err();
@@ -64,15 +49,13 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_delete_creates_archive() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let temp = TempDir::new().unwrap();
-        let orchid_dir = setup(&temp);
-        std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
+        let env = TestEnv::new();
+        let orchid_dir = env.dir();
 
         let convos_dir = orchid_dir.join("conversations");
+        std::fs::create_dir_all(&convos_dir).unwrap();
         let store = Store::with_base(convos_dir.clone());
         let meta = store.create(None, None, None, None).unwrap();
 

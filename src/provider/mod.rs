@@ -8,6 +8,8 @@ pub enum StreamEvent {
     TextDelta(String),
     /// A tool call being accumulated (name known, input still arriving).
     ToolCallDelta { index: usize, name: String },
+    /// Incremental reasoning/thinking content from the assistant.
+    ReasoningDelta(String),
     /// Stream finished — carries the fully assembled response.
     Complete(Response),
 }
@@ -16,6 +18,8 @@ pub enum StreamEvent {
 pub struct Response {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
     /// Token usage returned by the provider for this step.
@@ -61,6 +65,7 @@ mod tests {
     fn test_response_serialize() {
         let resp = Response {
             message: Some("hello".to_string()),
+            reasoning: None,
             tool_calls: None,
             usage: None,
             model: None,

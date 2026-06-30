@@ -1,5 +1,5 @@
+pub use crate::types::TokenBudget;
 use crate::get_convo_jsonl_path;
-use crate::types::TokenBudget;
 
 pub enum BudgetStatus {
     Ok { total: u32 },
@@ -42,13 +42,12 @@ mod tests {
     use super::*;
     use crate::log::LogWriter;
     use crate::types::{ConvoEvent, MessageEvent, TokenBudget};
+    use crate::TestEnv;
     use std::fs;
-    use tempfile::TempDir;
 
-    fn setup_convo_with_chars(temp: &TempDir, convo_id: &str, char_count: usize) {
-        let convo_dir = temp.path().join("conversations").join(convo_id);
+    fn setup_convo_with_chars(convo_id: &str, char_count: usize, base: &std::path::Path) {
+        let convo_dir = base.join("conversations").join(convo_id);
         fs::create_dir_all(&convo_dir).unwrap();
-        std::env::set_var("ORCHID_DIR", temp.path().to_string_lossy().to_string());
 
         // Write enough message events to hit the target char count.
         let jsonl = convo_dir.join("conversation.jsonl");
@@ -62,37 +61,40 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_ok() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let temp = TempDir::new().unwrap();
+        let env = TestEnv::new();
+        let base = env.dir();
+        let convos_dir = base.join("conversations");
+        std::fs::create_dir_all(&convos_dir).unwrap();
+        setup_convo_with_chars("c1", 30_000, base.as_path());
         // 30_000 chars / 3 = 10_000 tokens — well under 80k warn threshold
-        setup_convo_with_chars(&temp, "c1", 30_000);
         let budget = TokenBudget::default();
         assert!(matches!(check("c1", &budget), BudgetStatus::Ok { .. }));
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_warning() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let temp = TempDir::new().unwrap();
+        let env = TestEnv::new();
+        let base = env.dir();
+        let convos_dir = base.join("conversations");
+        std::fs::create_dir_all(&convos_dir).unwrap();
+        setup_convo_with_chars("c2", 270_000, base.as_path());
         // 270_000 chars / 3 = 90_000 tokens — above 80k, below 120k
-        setup_convo_with_chars(&temp, "c2", 270_000);
         let budget = TokenBudget::default();
         assert!(matches!(check("c2", &budget), BudgetStatus::Warning { .. }));
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_exceeded() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let temp = TempDir::new().unwrap();
+        let env = TestEnv::new();
+        let base = env.dir();
+        let convos_dir = base.join("conversations");
+        std::fs::create_dir_all(&convos_dir).unwrap();
+        setup_convo_with_chars("c3", 390_000, base.as_path());
         // 390_000 chars / 3 = 130_000 tokens — above 120k hard limit
-        setup_convo_with_chars(&temp, "c3", 390_000);
         let budget = TokenBudget::default();
         assert!(matches!(
             check("c3", &budget),

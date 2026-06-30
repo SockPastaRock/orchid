@@ -30,28 +30,16 @@ pub fn set(
 #[cfg(test)]
 mod tests {
     use crate::convo::Store;
-    use tempfile::TempDir;
-
-    fn setup(temp: &TempDir) -> std::path::PathBuf {
-        let dir = temp.path().to_path_buf();
-        let config = serde_json::json!({
-            "active_profile": "test",
-            "profiles": {"test": {"provider": "anthropic", "api_key": "x", "model": "m"}}
-        });
-        std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
-        dir
-    }
+    use crate::TestEnv;
 
     #[test]
+    #[serial_test::serial]
     fn test_set_label() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let temp = TempDir::new().unwrap();
-        let orchid_dir = setup(&temp);
-        std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
-
-        let store = Store::with_base(orchid_dir.join("conversations"));
+        let env = TestEnv::new();
+        let orchid_dir = env.dir();
+        let convos_dir = orchid_dir.join("conversations");
+        std::fs::create_dir_all(&convos_dir).unwrap();
+        let store = Store::with_base(convos_dir);
         let meta = store.create(None, None, None, None).unwrap();
 
         let result = super::set(meta.id.clone(), Some("my-label".to_string()), None, None).unwrap();
@@ -60,15 +48,13 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_set_updates_metadata() {
-        let _lock = crate::TEST_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let temp = TempDir::new().unwrap();
-        let orchid_dir = setup(&temp);
-        std::env::set_var("ORCHID_DIR", orchid_dir.to_string_lossy().to_string());
-
-        let store = Store::with_base(orchid_dir.join("conversations"));
+        let env = TestEnv::new();
+        let orchid_dir = env.dir();
+        let convos_dir = orchid_dir.join("conversations");
+        std::fs::create_dir_all(&convos_dir).unwrap();
+        let store = Store::with_base(convos_dir);
         let meta = store.create(None, None, None, None).unwrap();
 
         super::set(
