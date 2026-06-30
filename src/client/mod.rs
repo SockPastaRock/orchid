@@ -1,5 +1,6 @@
 pub mod base;
 pub mod resolve;
+pub mod sse;
 pub mod anthropic;
 pub mod openai;
 
@@ -61,6 +62,7 @@ mod tests {
             reasoning_effort: None,
             extra: HashMap::new(),
             headers: HashMap::new(),
+            server_actions: HashMap::new(),
             env: HashMap::new(),
         };
 

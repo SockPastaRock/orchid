@@ -26,10 +26,33 @@ pub struct Profile {
     /// Arbitrary headers injected into every request. Values support `env.<VAR>` indirection.
     #[serde(default)]
     pub headers: HashMap<String, String>,
+    /// Optional server-side management actions (list/load/unload models, etc.).
+    /// Declared in profile config; executed by `orchid server-action`.
+    #[serde(default)]
+    pub server_actions: HashMap<String, ServerAction>,
     #[serde(flatten, default)]
     pub extra: HashMap<String, serde_json::Value>,
     #[serde(default)]
     pub env: HashMap<String, String>,
+}
+
+/// A server-side action descriptor declared in a profile's config.
+///
+/// The CLI executes the HTTP request; downstream clients (Emacs, scripts)
+/// invoke through `orchid server-action`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerAction {
+    /// HTTP method: GET, POST, PUT, DELETE
+    pub method: String,
+    /// Relative path appended to profile's `base_url`
+    pub path: String,
+    /// Keys the caller may pass via `--key value` flags. Each becomes
+    /// a field in the JSON body. Omitted if not supplied.
+    #[serde(default)]
+    pub body_params: Vec<String>,
+    /// Extra headers beyond auth. Values support `env.` resolution.
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
 }
 
 /// Per-session resource limits. All fields optional; unset values use hardcoded defaults.
@@ -155,7 +178,6 @@ pub fn resolve_env(profile: &Profile) -> HashMap<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::TestEnv;
 
     #[test]
     fn test_resolve_env() {
@@ -175,6 +197,7 @@ mod tests {
             reasoning_effort: None,
             extra: std::collections::HashMap::new(),
             headers: std::collections::HashMap::new(),
+            server_actions: std::collections::HashMap::new(),
             env: env_vars,
         };
 
@@ -185,38 +208,83 @@ mod tests {
             Some("secret123")
         );
         assert_eq!(resolved.get("LITERAL").map(|s| s.as_str()), Some("value"));
+
+        env::remove_var("TEST_VAR");
     }
 
     #[test]
     fn test_get_orchid_dir_orchid_dir_override() {
-        let temp = tempfile::TempDir::new().unwrap();
-        let _env = TestEnv::with_dir(temp);
+        let prev = env::var("ORCHID_DIR").ok();
+        let xdg_prev = env::var("XDG_CONFIG_HOME").ok();
+        let home_prev = env::var("HOME").ok();
+        env::set_var("ORCHID_DIR", "/tmp/orchid-test");
         env::remove_var("XDG_CONFIG_HOME");
         env::remove_var("HOME");
 
         let result = get_orchid_dir().unwrap();
         assert_eq!(result, PathBuf::from("/tmp/orchid-test"));
+
+        // Restore
+        match prev {
+            Some(v) => env::set_var("ORCHID_DIR", v),
+            None => env::remove_var("ORCHID_DIR"),
+        }
+        match xdg_prev {
+            Some(v) => env::set_var("XDG_CONFIG_HOME", v),
+            None => env::remove_var("XDG_CONFIG_HOME"),
+        }
+        match home_prev {
+            Some(v) => env::set_var("HOME", v),
+            None => env::remove_var("HOME"),
+        }
     }
 
     #[test]
     fn test_get_orchid_dir_xdg_config_home() {
-        let temp = tempfile::TempDir::new().unwrap();
-        let _env = TestEnv::with_dir(temp);
-        env::remove_var("XDG_CONFIG_HOME");
+        let prev = env::var("ORCHID_DIR").ok();
+        let xdg_prev = env::var("XDG_CONFIG_HOME").ok();
+        let home_prev = env::var("HOME").ok();
+        env::remove_var("ORCHID_DIR");
+        env::set_var("XDG_CONFIG_HOME", "/tmp/xdg");
         env::remove_var("HOME");
 
         let result = get_orchid_dir().unwrap();
         assert_eq!(result, PathBuf::from("/tmp/xdg/orchid"));
+
+        // Restore
+        match prev {
+            Some(v) => env::set_var("ORCHID_DIR", v),
+            None => env::remove_var("ORCHID_DIR"),
+        }
+        match xdg_prev {
+            Some(v) => env::set_var("XDG_CONFIG_HOME", v),
+            None => env::remove_var("XDG_CONFIG_HOME"),
+        }
+        match home_prev {
+            Some(v) => env::set_var("HOME", v),
+            None => env::remove_var("HOME"),
+        }
     }
 
     #[test]
     fn test_get_orchid_dir_home_fallback() {
-        let temp = tempfile::TempDir::new().unwrap();
-        let _env = TestEnv::with_dir(temp);
+        let prev = env::var("ORCHID_DIR").ok();
+        let xdg_prev = env::var("XDG_CONFIG_HOME").ok();
+        env::remove_var("ORCHID_DIR");
         env::remove_var("XDG_CONFIG_HOME");
-        env::remove_var("HOME");
+        env::set_var("HOME", "/home/user");
 
         let result = get_orchid_dir().unwrap();
         assert_eq!(result, PathBuf::from("/home/user/.config/orchid"));
+
+        // Restore
+        match prev {
+            Some(v) => env::set_var("ORCHID_DIR", v),
+            None => env::remove_var("ORCHID_DIR"),
+        }
+        match xdg_prev {
+            Some(v) => env::set_var("XDG_CONFIG_HOME", v),
+            None => env::remove_var("XDG_CONFIG_HOME"),
+        }
     }
 }

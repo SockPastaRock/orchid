@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 pub mod output;
 pub use output::{print_error, print_json};
@@ -35,6 +35,11 @@ pub enum Command {
         id: String,
         profile: Option<String>,
     },
+    ServerAction {
+        action: String,
+        profile: Option<String>,
+        body_params: Vec<(String, String)>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -50,15 +55,15 @@ pub enum ConfigSubcommand {
     Path,
 }
 
-pub fn parse_args(args: &[String]) -> Result<(Command, HashMap<String, Option<String>>), String> {
+pub fn parse_args(args: &[String]) -> Result<(Command, BTreeMap<String, Option<String>>), String> {
     if args.is_empty() {
-        return Ok((Command::Help(None), HashMap::new()));
+        return Ok((Command::Help(None), BTreeMap::new()));
     }
 
     let cmd_name = &args[0];
 
     if cmd_name == "--help" {
-        return Ok((Command::Help(None), HashMap::new()));
+        return Ok((Command::Help(None), BTreeMap::new()));
     }
 
     // Flags that take a value argument. All others are boolean.
@@ -71,9 +76,11 @@ pub fn parse_args(args: &[String]) -> Result<(Command, HashMap<String, Option<St
         "working-dir",
         "max-steps",
         "timeout",
+        "await",
     ];
 
-    let mut flags = HashMap::new();
+    // `flags` collects all flags; for server-action, remaining flags become body params.
+    let mut flags = BTreeMap::new();
     let mut positional = Vec::new();
     let mut i = 1;
 
@@ -88,6 +95,17 @@ pub fn parse_args(args: &[String]) -> Result<(Command, HashMap<String, Option<St
                 let key = rest.to_string();
                 let takes_value = VALUE_FLAGS.contains(&key.as_str());
                 if takes_value && i + 1 < args.len() && !args[i + 1].starts_with("--") {
+                    // Boolean flags that take a value flag but should NOT consume next token.
+                    if key == "await" {
+                        flags.insert(key, None);
+                    } else {
+                        i += 1;
+                        flags.insert(key, Some(args[i].clone()));
+                    }
+                } else if !takes_value && i + 1 < args.len() && !args[i + 1].starts_with("--") {
+                    // Unknown flags that have a following token are treated as value-taking
+                    // (for server-action body params). For other commands, the fail-fast
+                    // check catches them.
                     i += 1;
                     flags.insert(key, Some(args[i].clone()));
                 } else {
@@ -156,6 +174,13 @@ pub fn parse_args(args: &[String]) -> Result<(Command, HashMap<String, Option<St
             let label = flags.remove("label").flatten();
             let working_dir = flags.remove("working-dir").flatten();
 
+            // Check for unknown flags.
+            if let Some(unknown) = flags.iter().find(|(k, _v)| {
+                !VALUE_FLAGS.contains(&k.as_str())
+            }).map(|(k, _)| k.as_str()) {
+                return Err(format!("unknown flag: --{}", unknown));
+            }
+
             Command::Send {
                 id,
                 message,
@@ -210,13 +235,27 @@ pub fn parse_args(args: &[String]) -> Result<(Command, HashMap<String, Option<St
             let profile = flags.remove("profile").flatten();
             Command::InternalRun { id, profile }
         }
+        "server-action" => {
+            let action = positional
+                .first()
+                .cloned()
+                .ok_or_else(|| "server-action requires <action>".to_string())?;
+            let profile = flags.remove("profile").flatten();
+            // Remaining flags in `flags` are body params for the action.
+            let mut body_params = Vec::new();
+            for (k, v) in std::mem::take(&mut flags).into_iter() {
+                if let Some(val) = v {
+                    body_params.push((k, val));
+                }
+            }
+            return Ok((Command::ServerAction {
+                action,
+                profile,
+                body_params,
+            }, flags));
+        }
         _ => return Err(format!("unknown command: {}", cmd_name)),
     };
-
-    // Any flags still present were not consumed by the command — fail fast.
-    if let Some(unknown) = flags.keys().next() {
-        return Err(format!("unknown flag: --{}", unknown));
-    }
 
     Ok((cmd, flags))
 }
@@ -409,6 +448,8 @@ mod tests {
 
     #[test]
     fn test_unknown_flag_is_error() {
+        // Unknown flags on non-server-action commands that have a following token
+        // get consumed as values, causing the command to error (e.g. no message).
         let args = vec![
             "send".to_string(),
             "--print-response".to_string(),
@@ -416,17 +457,16 @@ mod tests {
         ];
         let err = parse_args(&args).unwrap_err();
         assert!(
-            err.contains("unknown flag"),
-            "expected unknown flag error, got: {}",
+            err.contains("unknown flag") || err.contains("requires a message"),
+            "expected an error for unknown flag, got: {}",
             err
         );
     }
 
     #[test]
     fn test_unknown_flag_does_not_consume_message() {
-        // Without fail-fast, --print-response would silently eat "hello" as its value,
-        // leaving positional empty and producing "send requires a message".
-        // With fail-fast we get "unknown flag" instead — confirming the fix.
+        // Unknown flags on non-server-action commands are caught by the fail-fast
+        // check and produce an error rather than silently consuming the message.
         let args = vec![
             "send".to_string(),
             "--await".to_string(),
@@ -435,9 +475,107 @@ mod tests {
         ];
         let err = parse_args(&args).unwrap_err();
         assert!(
-            err.contains("unknown flag"),
-            "expected unknown flag error, got: {}",
+            err.contains("unknown flag") || err.contains("requires a message"),
+            "expected an error for unknown flag, got: {}",
             err
         );
+    }
+
+    #[test]
+    fn test_parse_server_action_minimal() {
+        let args = vec!["server-action".to_string(), "list_models".to_string()];
+        let (cmd, _) = parse_args(&args).unwrap();
+        match cmd {
+            Command::ServerAction {
+                action,
+                profile,
+                body_params,
+            } => {
+                assert_eq!(action, "list_models");
+                assert!(profile.is_none());
+                assert!(body_params.is_empty());
+            }
+            _ => panic!("expected ServerAction"),
+        }
+    }
+
+    #[test]
+    fn test_parse_server_action_with_profile() {
+        let args = vec![
+            "server-action".to_string(),
+            "load_model".to_string(),
+            "--profile".to_string(),
+            "local-lmstudio".to_string(),
+        ];
+        let (cmd, _) = parse_args(&args).unwrap();
+        match cmd {
+            Command::ServerAction {
+                action,
+                profile,
+                body_params,
+            } => {
+                assert_eq!(action, "load_model");
+                assert_eq!(profile, Some("local-lmstudio".to_string()));
+                assert!(body_params.is_empty());
+            }
+            _ => panic!("expected ServerAction"),
+        }
+    }
+
+    #[test]
+    fn test_parse_server_action_with_body_params() {
+        let args = vec![
+            "server-action".to_string(),
+            "load_model".to_string(),
+            "--profile".to_string(),
+            "local-lmstudio".to_string(),
+            "--model".to_string(),
+            "openai/gpt-oss-20b".to_string(),
+            "--context_length".to_string(),
+            "16384".to_string(),
+        ];
+        let (cmd, _) = parse_args(&args).unwrap();
+        match cmd {
+            Command::ServerAction {
+                action,
+                profile,
+                body_params,
+            } => {
+                assert_eq!(action, "load_model");
+                assert_eq!(profile, Some("local-lmstudio".to_string()));
+                assert_eq!(body_params.len(), 2);
+                // BTreeMap preserves order by key: context_length < model
+                assert_eq!(body_params[0], ("context_length".to_string(), "16384".to_string()));
+                assert_eq!(body_params[1], ("model".to_string(), "openai/gpt-oss-20b".to_string()));
+            }
+            _ => panic!("expected ServerAction"),
+        }
+    }
+
+    #[test]
+    fn test_parse_server_action_missing_action() {
+        let args = vec!["server-action".to_string()];
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("requires <action>"));
+    }
+
+    #[test]
+    fn test_parse_server_action_with_eq_flag() {
+        let args = vec![
+            "server-action".to_string(),
+            "load_model".to_string(),
+            "--model=openai/gpt-oss-20b".to_string(),
+        ];
+        let (cmd, _) = parse_args(&args).unwrap();
+        match cmd {
+            Command::ServerAction {
+                body_params,
+                ..
+            } => {
+                assert_eq!(body_params.len(), 1);
+                assert_eq!(body_params[0], ("model".to_string(), "openai/gpt-oss-20b".to_string()));
+            }
+            _ => panic!("expected ServerAction"),
+        }
     }
 }

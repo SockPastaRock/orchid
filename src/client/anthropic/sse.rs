@@ -1,86 +1,182 @@
-use crate::provider::{ProviderError, Response, StreamEvent};
-use crate::types::{TokenUsage, ToolCall};
+use crate::client::sse::{SseEventMapper, SseParser};
 use serde_json::Value;
+use crate::provider::{ProviderError, StreamEvent};
 use std::io::BufRead;
 
-/// Accumulator for a single tool_use block being built across deltas.
-struct ToolCallAccumulator {
-    index: usize,
-    id: String,
-    name: String,
-    input_json: String,
+/// Provider-specific mapper for Anthropic SSE events.
+pub struct AnthropicEventMapper {
+    model: Option<String>,
+    /// Accumulate output_tokens from message_delta events.
+    pending_output_tokens: Option<u32>,
+}
+
+impl AnthropicEventMapper {
+    pub fn new() -> Self {
+        AnthropicEventMapper {
+            model: None,
+            pending_output_tokens: None,
+        }
+    }
+}
+
+impl SseEventMapper for AnthropicEventMapper {
+    fn map_event(
+        &mut self,
+        chunk: crate::client::sse::ParsedChunk,
+        text_buf: &mut String,
+        reasoning_buf: &mut String,
+        tool_calls: &mut Vec<crate::client::sse::ToolCallAccumulator>,
+    ) -> Option<Vec<StreamEvent>> {
+        match chunk {
+            crate::client::sse::ParsedChunk::Eof => None,
+            crate::client::sse::ParsedChunk::Json(data) => {
+                self.handle_anthropic_data(
+                    &data,
+                    text_buf,
+                    reasoning_buf,
+                    tool_calls,
+                )
+            }
+        }
+    }
+}
+
+impl AnthropicEventMapper {
+    fn handle_anthropic_data(
+        &mut self,
+        data: &Value,
+        text_buf: &mut String,
+        reasoning_buf: &mut String,
+        tool_calls: &mut Vec<crate::client::sse::ToolCallAccumulator>,
+    ) -> Option<Vec<StreamEvent>> {
+        // message_start — model name
+        if data["type"].as_str() == Some("message_start") {
+            if let Some(m) = data["message"]["model"].as_str() {
+                self.model = Some(m.to_string());
+            }
+            return Some(vec![]);
+        }
+
+        // message_delta — usage info (output_tokens)
+        if data["type"].as_str() == Some("message_delta") {
+            if let Some(usage) = data["usage"].as_object() {
+                if let Some(output_tokens) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
+                    self.pending_output_tokens = Some(output_tokens as u32);
+                }
+            }
+            return Some(vec![]);
+        }
+
+        // content_block_start
+        if data["type"].as_str() == Some("content_block_start") {
+            let block_type = data["content_block"]["type"].as_str().unwrap_or("");
+            let index = data["index"].as_u64().unwrap_or(0) as usize;
+
+            if block_type == "thinking" {
+                *reasoning_buf = String::new();
+                return Some(vec![]);
+            }
+            if block_type == "tool_use" {
+                let id = data["content_block"]["id"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                let name = data["content_block"]["name"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                tool_calls.push(crate::client::sse::ToolCallAccumulator {
+                    index,
+                    id,
+                    name: name.clone(),
+                    input_json: String::new(),
+                });
+                return Some(vec![StreamEvent::ToolCallDelta {
+                    index,
+                    name,
+                }]);
+            }
+            return Some(vec![]);
+        }
+
+        // content_block_delta
+        if data["type"].as_str() == Some("content_block_delta") {
+            let index = data["index"].as_u64().unwrap_or(0) as usize;
+            let delta_type = data["delta"]["type"].as_str().unwrap_or("");
+
+            match delta_type {
+                "text_delta" => {
+                    let text = data["delta"]["text"].as_str().unwrap_or("");
+                    text_buf.push_str(text);
+                    return Some(vec![StreamEvent::TextDelta(text.to_string())]);
+                }
+                "thinking_delta" => {
+                    let text = data["delta"]["thinking"].as_str().unwrap_or("");
+                    reasoning_buf.push_str(text);
+                    return Some(vec![StreamEvent::ReasoningDelta(text.to_string())]);
+                }
+                "input_json_delta" => {
+                    let partial = data["delta"]["partial_json"].as_str().unwrap_or("");
+                    if let Some(tc) = tool_calls.iter_mut().find(|tc| tc.index == index) {
+                        tc.input_json.push_str(partial);
+                    }
+                    let name = tool_calls
+                        .iter()
+                        .find(|tc| tc.index == index)
+                        .map(|tc| tc.name.clone())
+                        .unwrap_or_default();
+                    return Some(vec![StreamEvent::ToolCallDelta {
+                        index,
+                        name,
+                    }]);
+                }
+                "stop_reason" => {
+                    return Some(vec![]);
+                }
+                _ => return Some(vec![]),
+            }
+        }
+
+        // message_stop — finalize
+        if data["type"].as_str() == Some("message_stop") {
+            return Some(vec![]);
+        }
+
+        // error — signal failure
+        if data["error"].is_object() {
+            return None;
+        }
+
+        Some(vec![])
+    }
+
+    #[allow(dead_code)]
+    fn finalize_usage(&mut self, usage: Option<crate::types::TokenUsage>) -> Option<crate::types::TokenUsage> {
+        match (usage, self.pending_output_tokens) {
+            (Some(mut u), Some(output_tokens)) => {
+                u.output_tokens = output_tokens;
+                Some(u)
+            }
+            (u, _) => u,
+        }
+    }
+
+    #[allow(dead_code)]
+    fn finalize_model(&mut self, model: Option<String>) -> Option<String> {
+        self.model.take().or(model)
+    }
 }
 
 /// Drives an Anthropic SSE stream, yielding `StreamEvent`s.
 pub struct SseStream<R: BufRead> {
-    reader: R,
-    done: bool,
-    text_buf: String,
-    reasoning_buf: String,
-    tool_calls: Vec<ToolCallAccumulator>,
-    usage: Option<TokenUsage>,
-    model: Option<String>,
+    inner: SseParser<R, AnthropicEventMapper>,
 }
 
 impl<R: BufRead> SseStream<R> {
     pub fn new(reader: R) -> Self {
         SseStream {
-            reader,
-            done: false,
-            text_buf: String::new(),
-            reasoning_buf: String::new(),
-            tool_calls: Vec::new(),
-            usage: None,
-            model: None,
+            inner: SseParser::new(reader, AnthropicEventMapper::new()),
         }
-    }
-
-    fn build_complete_response(&self) -> Result<Response, String> {
-        let message = if self.text_buf.trim().is_empty() {
-            None
-        } else {
-            Some(self.text_buf.clone())
-        };
-
-        let reasoning = if self.reasoning_buf.trim().is_empty() {
-            None
-        } else {
-            Some(self.reasoning_buf.clone())
-        };
-
-        let tool_calls = if self.tool_calls.is_empty() {
-            None
-        } else {
-            let parsed: Result<Vec<ToolCall>, String> = self
-                .tool_calls
-                .iter()
-                .map(|tc| {
-                    serde_json::from_str(&tc.input_json).map_err(|e| {
-                        format!(
-                            "tool_call '{}' (index {}) malformed JSON: {} — raw: '{}'",
-                            tc.name,
-                            tc.index,
-                            e,
-                            &tc.input_json[..tc.input_json.len().min(200)]
-                        )
-                    })
-                    .map(|val| ToolCall {
-                        id: tc.id.clone(),
-                        name: tc.name.clone(),
-                        input: val,
-                    })
-                })
-                .collect();
-            Some(parsed?)
-        };
-
-        Ok(Response {
-            message,
-            reasoning,
-            tool_calls,
-            usage: self.usage.clone(),
-            model: self.model.clone(),
-        })
     }
 }
 
@@ -88,166 +184,7 @@ impl<R: BufRead> Iterator for SseStream<R> {
     type Item = Result<StreamEvent, ProviderError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.done {
-            return None;
-        }
-
-        let mut event_type = String::new();
-        let mut data_line = String::new();
-
-        loop {
-            let mut line = String::new();
-            match self.reader.read_line(&mut line) {
-                Ok(0) => {
-                    self.done = true;
-                    return match self.build_complete_response() {
-                        Ok(resp) => Some(Ok(StreamEvent::Complete(resp))),
-                        Err(e) => Some(Err(ProviderError::InvalidResponse(e))),
-                    };
-                }
-                Err(e) => {
-                    self.done = true;
-                    return Some(Err(ProviderError::Network(e.to_string())));
-                }
-                Ok(_) => {}
-            }
-
-            let line = line.trim_end_matches(['\n', '\r']);
-
-            if line.is_empty() {
-                if !data_line.is_empty() {
-                    break;
-                }
-                event_type.clear();
-                continue;
-            }
-
-            if let Some(rest) = line.strip_prefix("event: ") {
-                event_type = rest.to_string();
-            } else if let Some(rest) = line.strip_prefix("data: ") {
-                data_line = rest.to_string();
-            }
-        }
-
-        let data: Value = match serde_json::from_str(&data_line) {
-            Ok(v) => v,
-            Err(e) => {
-                return Some(Err(ProviderError::InvalidResponse(format!(
-                    "SSE JSON parse error: {} — data: {}",
-                    e, &data_line[..data_line.len().min(200)]
-                ))));
-            }
-        };
-
-        match event_type.as_str() {
-            "message_start" => {
-                if let Some(model) = data["message"]["model"].as_str() {
-                    self.model = Some(model.to_string());
-                }
-                self.next()
-            }
-
-            "content_block_start" => {
-                let index = data["index"].as_u64().unwrap_or(0) as usize;
-                let block_type = data["content_block"]["type"].as_str().unwrap_or("");
-
-                if block_type == "thinking" {
-                    // Start accumulating reasoning/thinking content
-                    self.reasoning_buf = String::new();
-                    self.next()
-                } else if block_type == "tool_use" {
-                    let id = data["content_block"]["id"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string();
-                    let name = data["content_block"]["name"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string();
-
-                    self.tool_calls.push(ToolCallAccumulator {
-                        index,
-                        id,
-                        name: name.clone(),
-                        input_json: String::new(),
-                    });
-
-                    Some(Ok(StreamEvent::ToolCallDelta { index, name }))
-                } else {
-                    self.next()
-                }
-            }
-
-            "content_block_delta" => {
-                let index = data["index"].as_u64().unwrap_or(0) as usize;
-                let delta_type = data["delta"]["type"].as_str().unwrap_or("");
-
-                match delta_type {
-                    "text_delta" => {
-                        let text = data["delta"]["text"].as_str().unwrap_or("");
-                        self.text_buf.push_str(text);
-                        Some(Ok(StreamEvent::TextDelta(text.to_string())))
-                    }
-                    "thinking_delta" => {
-                        let text = data["delta"]["thinking"].as_str().unwrap_or("");
-                        self.reasoning_buf.push_str(text);
-                        Some(Ok(StreamEvent::ReasoningDelta(text.to_string())))
-                    }
-                    "input_json_delta" => {
-                        let partial = data["delta"]["partial_json"].as_str().unwrap_or("");
-                        if let Some(tc) = self.tool_calls.iter_mut().find(|tc| tc.index == index) {
-                            tc.input_json.push_str(partial);
-                        }
-                        let name = self
-                            .tool_calls
-                            .iter()
-                            .find(|tc| tc.index == index)
-                            .map(|tc| tc.name.clone())
-                            .unwrap_or_default();
-                        Some(Ok(StreamEvent::ToolCallDelta { index, name }))
-                    }
-                    "stop_reason" => {
-                        self.next()
-                    }
-                    _ => self.next(),
-                }
-            }
-
-            "message_delta" => {
-                if let Some(usage) = data["usage"].as_object() {
-                    let output_tokens =
-                        usage.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                    if let Some(ref mut u) = self.usage {
-                        u.output_tokens = output_tokens;
-                    } else {
-                        self.usage = Some(TokenUsage {
-                            input_tokens: 0,
-                            output_tokens,
-                        });
-                    }
-                }
-                self.next()
-            }
-
-            "message_stop" => {
-                self.done = true;
-                match self.build_complete_response() {
-                    Ok(resp) => Some(Ok(StreamEvent::Complete(resp))),
-                    Err(e) => Some(Err(ProviderError::InvalidResponse(e))),
-                }
-            }
-
-            "error" => {
-                self.done = true;
-                let msg = data["error"]["message"]
-                    .as_str()
-                    .unwrap_or("unknown SSE error")
-                    .to_string();
-                Some(Err(ProviderError::InvalidResponse(msg)))
-            }
-
-            _ => self.next(),
-        }
+        self.inner.next()
     }
 }
 

@@ -13,6 +13,7 @@ COMMANDS:
   delete              Delete conversation by ID
   stop                Stop a running conversation (alias for kill)
   kill                Kill a running conversation (alias for stop)
+  server-action       Execute a server action (list/load/unload models)
   help                Display this help message
 
 OPTIONS:
@@ -31,6 +32,7 @@ EXAMPLES:
   orchid send "hello" --id abc123          Send message
   orchid config current                    Show current profile
   orchid set --id abc123 --label "work"    Update label
+  orchid server-action list_models         Execute server action
 
 For command-specific help: orchid <COMMAND> --help"#;
 
@@ -48,6 +50,7 @@ pub fn help_command(cmd: &str) -> Result<serde_json::Value, String> {
         "delete" => "orchid delete - Archive conversation\n\nUsage: orchid delete <ID>\n\nMoves the conversation to ~/.config/orchid/conversations/.archive/<id>.\nRemoved from orchid list. Reversible: move the directory back to restore.",
         "stop" => "orchid stop - Stop a running conversation\n\nUsage: orchid stop <ID>\n\nSends SIGTERM to the conversation's background process, then marks it as Idle.\n\nAlias: kill",
         "kill" => "orchid kill - Kill a running conversation\n\nUsage: orchid kill <ID>\n\nSends SIGKILL to the conversation's background process, then marks it as Idle.\n\nAlias: stop.",
+        "server-action" => "orchid server-action - Execute a server action\n\nUsage: orchid server-action <ACTION> [--profile <NAME>] [--key value ...]\n\nExecute a server action defined in a profile's server_actions config.\nActions are declared in the profile's server_actions map.",
         "help" => "orchid help - Display help\n\nUsage: orchid help\n       orchid --help\n       orchid <COMMAND> --help\n\nShow usage information.",
         _ => return Err(format!("unknown command: {}", cmd)),
     };

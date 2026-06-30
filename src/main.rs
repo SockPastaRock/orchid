@@ -53,6 +53,11 @@ fn main() {
             Ok(()) => Ok(serde_json::json!({"status": "ok"})),
             Err(e) => Err(e),
         },
+        Command::ServerAction {
+            action,
+            profile,
+            body_params,
+        } => cmd::server_action(&action, profile.as_deref(), &body_params),
     };
 
     match result {

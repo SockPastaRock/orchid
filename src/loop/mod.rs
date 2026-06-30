@@ -57,9 +57,9 @@ mod tests {
         }
     }
 
-    fn setup_orchid_dir() -> (tempfile::TempDir, std::path::PathBuf) {
-        let temp = tempfile::TempDir::new().unwrap();
-        let dir = temp.path().to_path_buf();
+    fn setup_orchid_dir() -> (std::path::PathBuf, TestEnv) {
+        let env = TestEnv::new();
+        let dir = env.dir();
         let prompts_dir = dir.join("system-prompts");
         fs::create_dir_all(&prompts_dir).unwrap();
         fs::write(prompts_dir.join("base.md"), "You are a helpful assistant.").unwrap();
@@ -73,7 +73,7 @@ mod tests {
             }
         });
         fs::write(dir.join("config.json"), config.to_string()).unwrap();
-        (temp, dir)
+        (dir, env)
     }
 
     fn create_seeded_convo(orchid_dir: &std::path::Path) -> String {
@@ -94,10 +94,10 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_tool_error_returned_to_model_not_propagated() {
-        let (temp, orchid_dir) = setup_orchid_dir();
+        let (orchid_dir, _env) = setup_orchid_dir();
         let convo_id = create_seeded_convo(orchid_dir.as_path());
-        let _env = TestEnv::with_dir(temp);
 
 
         // Step 1: model requests fs_read on /etc/passwd — out of scope for working_dir=/tmp.
@@ -154,10 +154,10 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_provider_error_leaves_convo_idle() {
-        let (temp, orchid_dir) = setup_orchid_dir();
+        let (orchid_dir, _env) = setup_orchid_dir();
         let convo_id = create_seeded_convo(orchid_dir.as_path());
-        let _env = TestEnv::with_dir(temp);
 
 
         // Provider returns no responses — first send fails with a network error.
@@ -244,10 +244,10 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_empty_response_continues_loop_instead_of_breaking() {
-        let (temp, orchid_dir) = setup_orchid_dir();
+        let (orchid_dir, _env) = setup_orchid_dir();
         let convo_id = create_seeded_convo(orchid_dir.as_path());
-        let _env = TestEnv::with_dir(temp);
 
 
         // Step 1: model returns empty response (no message, no tool_calls).
@@ -298,10 +298,10 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_whitespace_only_message_triggers_retry() {
-        let (temp, orchid_dir) = setup_orchid_dir();
+        let (orchid_dir, _env) = setup_orchid_dir();
         let convo_id = create_seeded_convo(orchid_dir.as_path());
-        let _env = TestEnv::with_dir(temp);
 
 
         // Step 1: model returns a whitespace-only message (e.g., "\n\n").
@@ -352,10 +352,10 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_pre_send_budget_exceeded_does_not_call_provider() {
-        let (temp, orchid_dir) = setup_orchid_dir();
+        let (orchid_dir, _env) = setup_orchid_dir();
         let convo_id = create_seeded_convo(orchid_dir.as_path());
-        let _env = TestEnv::with_dir(temp);
 
 
         // Provider should never be called — if it is, the test fails with "no more responses".

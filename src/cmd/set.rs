@@ -32,23 +32,14 @@ mod tests {
     use crate::convo::Store;
     use crate::TestEnv;
 
-    fn setup() -> (tempfile::TempDir, std::path::PathBuf) {
-        let temp = tempfile::TempDir::new().unwrap();
-        let dir = temp.path().to_path_buf();
-        let config = serde_json::json!({
-            "active_profile": "test",
-            "profiles": {"test": {"provider": "anthropic", "api_key": "x", "model": "m"}}
-        });
-        std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
-        (temp, dir)
-    }
-
     #[test]
+    #[serial_test::serial]
     fn test_set_label() {
-        let (temp, orchid_dir) = setup();
-        let _env = TestEnv::with_dir(temp);
-
-        let store = Store::with_base(orchid_dir.join("conversations"));
+        let env = TestEnv::new();
+        let orchid_dir = env.dir();
+        let convos_dir = orchid_dir.join("conversations");
+        std::fs::create_dir_all(&convos_dir).unwrap();
+        let store = Store::with_base(convos_dir);
         let meta = store.create(None, None, None, None).unwrap();
 
         let result = super::set(meta.id.clone(), Some("my-label".to_string()), None, None).unwrap();
@@ -57,11 +48,13 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_set_updates_metadata() {
-        let (temp, orchid_dir) = setup();
-        let _env = TestEnv::with_dir(temp);
-
-        let store = Store::with_base(orchid_dir.join("conversations"));
+        let env = TestEnv::new();
+        let orchid_dir = env.dir();
+        let convos_dir = orchid_dir.join("conversations");
+        std::fs::create_dir_all(&convos_dir).unwrap();
+        let store = Store::with_base(convos_dir);
         let meta = store.create(None, None, None, None).unwrap();
 
         super::set(

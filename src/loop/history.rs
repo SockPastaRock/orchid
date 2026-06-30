@@ -191,10 +191,14 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_stale_read_replacement() -> Result<(), Box<dyn std::error::Error>> {
-        let temp_dir = TempDir::new()?;
+        let env = TestEnv::new();
+        let base = env.dir();
+        let convos_dir = base.join("conversations");
+        std::fs::create_dir_all(&convos_dir).unwrap();
         let convo_id = "stale-test-001";
-        let convo_path = temp_dir.path().join("conversations").join(convo_id);
+        let convo_path = convos_dir.join(convo_id);
         fs::create_dir_all(&convo_path)?;
         let jsonl_path = convo_path.join("conversation.jsonl");
 
@@ -222,7 +226,6 @@ mod tests {
         }
         let disk_before = fs::read_to_string(&jsonl_path)?;
 
-        let _env = TestEnv::with_dir(temp_dir);
         let log = DiagLogger::for_convo(convo_path.clone(), LogLevel::Debug);
         let messages = build_message_history(convo_id, &log)?;
 

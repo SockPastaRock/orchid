@@ -35,21 +35,9 @@ mod tests {
     use crate::convo::Store;
     use crate::TestEnv;
 
-    fn setup() -> (tempfile::TempDir, std::path::PathBuf) {
-        let temp = tempfile::TempDir::new().unwrap();
-        let dir = temp.path().to_path_buf();
-        let config = serde_json::json!({
-            "active_profile": "test",
-            "profiles": {"test": {"provider": "anthropic", "api_key": "x", "model": "m"}}
-        });
-        std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
-        (temp, dir)
-    }
-
     #[test]
     fn test_delete_not_found() {
-        let (temp, _orchid_dir) = setup();
-        let _env = TestEnv::with_dir(temp);
+        let _env = TestEnv::new();
 
         let fake_id = "a".repeat(32);
         let err = super::delete(fake_id).unwrap_err();
@@ -61,11 +49,13 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_delete_creates_archive() {
-        let (temp, orchid_dir) = setup();
-        let _env = TestEnv::with_dir(temp);
+        let env = TestEnv::new();
+        let orchid_dir = env.dir();
 
         let convos_dir = orchid_dir.join("conversations");
+        std::fs::create_dir_all(&convos_dir).unwrap();
         let store = Store::with_base(convos_dir.clone());
         let meta = store.create(None, None, None, None).unwrap();
 

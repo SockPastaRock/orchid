@@ -1,82 +1,143 @@
-use crate::provider::{ProviderError, Response, StreamEvent};
-use crate::types::{TokenUsage, ToolCall};
+use crate::client::sse::{SseEventMapper, SseParser};
+use crate::provider::{ProviderError, StreamEvent};
 use std::io::BufRead;
 
-/// Accumulator for a single tool call being built across streaming deltas.
-struct StreamToolCallAccumulator {
-    id: Option<String>,
-    name: String,
-    arguments_json: String,
+/// Provider-specific mapper for OpenAI SSE events.
+pub struct OpenAiEventMapper {
+    pub finish_reason: Option<String>,
+}
+
+impl OpenAiEventMapper {
+    pub fn new() -> Self {
+        OpenAiEventMapper { finish_reason: None }
+    }
+}
+
+impl SseEventMapper for OpenAiEventMapper {
+    fn map_event(
+        &mut self,
+        chunk: crate::client::sse::ParsedChunk,
+        text_buf: &mut String,
+        reasoning_buf: &mut String,
+        tool_calls: &mut Vec<crate::client::sse::ToolCallAccumulator>,
+    ) -> Option<Vec<StreamEvent>> {
+        match chunk {
+            crate::client::sse::ParsedChunk::Eof => None,
+            crate::client::sse::ParsedChunk::Json(data) => {
+                self.handle_openai_data(&data, text_buf, reasoning_buf, tool_calls)
+            }
+        }
+    }
+}
+
+impl OpenAiEventMapper {
+    fn handle_openai_data(
+        &mut self,
+        data: &serde_json::Value,
+        text_buf: &mut String,
+        reasoning_buf: &mut String,
+        tool_calls: &mut Vec<crate::client::sse::ToolCallAccumulator>,
+    ) -> Option<Vec<StreamEvent>> {
+        // OpenAI wire format: OpenAiStreamChunk
+        let choices = match data["choices"].as_array() {
+            Some(c) if !c.is_empty() => c,
+            _ => return Some(vec![]),
+        };
+
+        let choice = &choices[0];
+
+        // Check finish_reason for stream termination
+        if let Some(ref finish_reason) = choice["finish_reason"].as_str() {
+            if *finish_reason == "stop" || *finish_reason == "tool_calls" {
+                self.finish_reason = Some(finish_reason.to_string());
+            }
+        }
+
+        let delta = match choice["delta"].as_object() {
+            Some(d) => d,
+            None => return Some(vec![]),
+        };
+
+        // content
+        if let Some(text) = delta["content"].as_str() {
+            if !text.is_empty() {
+                text_buf.push_str(text);
+                return Some(vec![StreamEvent::TextDelta(text.to_string())]);
+            }
+        }
+
+        // reasoning_content (o1/o3 style)
+        if let Some(reasoning) = delta["reasoning_content"].as_str() {
+            if !reasoning.is_empty() {
+                reasoning_buf.push_str(reasoning);
+                return Some(vec![StreamEvent::ReasoningDelta(reasoning.to_string())]);
+            }
+        }
+
+        // tool_calls
+        if let Some(calls) = data["choices"][0]["delta"]["tool_calls"].as_array() {
+            if calls.is_empty() {
+                return Some(vec![]);
+            }
+
+            let mut events = Vec::new();
+            for call in calls {
+                let idx = call["index"].as_u64().unwrap_or(0) as usize;
+
+                if let Some(ref id) = call["id"].as_str() {
+                    if idx >= tool_calls.len() {
+                        let name = call["function"]["name"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string();
+                        tool_calls.push(crate::client::sse::ToolCallAccumulator {
+                            index: idx,
+                            id: id.to_string(),
+                            name: name.to_string(),
+                            input_json: String::new(),
+                        });
+                        events.push(StreamEvent::ToolCallDelta {
+                            index: idx,
+                            name,
+                        });
+                    } else if tool_calls[idx].id.is_empty() {
+                        tool_calls[idx].id = id.to_string();
+                    }
+                }
+
+                if let Some(ref func) = call["function"].as_object() {
+                    if let Some(ref args) = func["arguments"].as_str() {
+                        if idx < tool_calls.len() {
+                            tool_calls[idx].input_json.push_str(args);
+                        }
+                    }
+                    if let Some(ref name) = func["name"].as_str() {
+                        if idx < tool_calls.len() && !name.is_empty() {
+                            events.push(StreamEvent::ToolCallDelta {
+                                index: idx,
+                                name: name.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            return Some(events);
+        }
+
+        Some(vec![])
+    }
 }
 
 /// Drives an OpenAI SSE stream, yielding `StreamEvent`s.
 pub struct OpenAiStream<R: BufRead> {
-    reader: R,
-    done: bool,
-    text_buf: String,
-    reasoning_buf: String,
-    tool_calls: Vec<StreamToolCallAccumulator>,
-    usage: Option<TokenUsage>,
+    inner: SseParser<R, OpenAiEventMapper>,
 }
 
 impl<R: BufRead> OpenAiStream<R> {
     pub fn new(reader: R) -> Self {
         OpenAiStream {
-            reader,
-            done: false,
-            text_buf: String::new(),
-            reasoning_buf: String::new(),
-            tool_calls: Vec::new(),
-            usage: None,
+            inner: SseParser::new(reader, OpenAiEventMapper::new()),
         }
-    }
-
-    fn build_complete_response(&self) -> Result<Response, String> {
-        let message = if self.text_buf.trim().is_empty() {
-            None
-        } else {
-            Some(self.text_buf.clone())
-        };
-
-        let reasoning = if self.reasoning_buf.trim().is_empty() {
-            None
-        } else {
-            Some(self.reasoning_buf.clone())
-        };
-
-        let tool_calls = if self.tool_calls.is_empty() {
-            None
-        } else {
-            let parsed: Result<Vec<ToolCall>, String> = self
-                .tool_calls
-                .iter()
-                .map(|tc| {
-                    serde_json::from_str(&tc.arguments_json).map_err(|e| {
-                        format!(
-                            "tool_call '{}' (id {:?}) malformed JSON: {} — raw: '{}'",
-                            tc.name,
-                            tc.id,
-                            e,
-                            &tc.arguments_json[..tc.arguments_json.len().min(200)]
-                        )
-                    })
-                    .map(|val| ToolCall {
-                        id: tc.id.clone().unwrap_or_default(),
-                        name: tc.name.clone(),
-                        input: val,
-                    })
-                })
-                .collect();
-            Some(parsed?)
-        };
-
-        Ok(Response {
-            message,
-            reasoning,
-            tool_calls,
-            usage: self.usage.clone(),
-            model: None,
-        })
     }
 }
 
@@ -84,146 +145,7 @@ impl<R: BufRead> Iterator for OpenAiStream<R> {
     type Item = Result<StreamEvent, ProviderError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.done {
-            return None;
-        }
-
-        let mut data_line = String::new();
-
-        loop {
-            let mut line = String::new();
-            match self.reader.read_line(&mut line) {
-                Ok(0) => {
-                    self.done = true;
-                    return match self.build_complete_response() {
-                        Ok(resp) => Some(Ok(StreamEvent::Complete(resp))),
-                        Err(e) => Some(Err(ProviderError::InvalidResponse(e))),
-                    };
-                }
-                Err(e) => {
-                    self.done = true;
-                    return Some(Err(ProviderError::Network(e.to_string())));
-                }
-                Ok(_) => {}
-            }
-
-            let line = line.trim_end_matches(['\n', '\r']);
-
-            if line.is_empty() {
-                if !data_line.is_empty() {
-                    break;
-                }
-                continue;
-            }
-
-            if let Some(rest) = line.strip_prefix("data: ") {
-                data_line = rest.to_string();
-            }
-        }
-
-        if data_line.trim() == "[DONE]" {
-            self.done = true;
-            return match self.build_complete_response() {
-                Ok(resp) => Some(Ok(StreamEvent::Complete(resp))),
-                Err(e) => Some(Err(ProviderError::InvalidResponse(e))),
-            };
-        }
-
-        let chunk: super::wire::OpenAiStreamChunk = match serde_json::from_str(&data_line) {
-            Ok(v) => v,
-            Err(e) => {
-                return Some(Err(ProviderError::InvalidResponse(format!(
-                    "SSE JSON parse error: {} — data: {}",
-                    e, &data_line[..data_line.len().min(200)]
-                ))));
-            }
-        };
-
-        if let Some(ref usage) = chunk.usage {
-            self.usage = Some(TokenUsage {
-                input_tokens: usage.prompt_tokens.unwrap_or(0),
-                output_tokens: usage.completion_tokens.unwrap_or(0),
-            });
-            return self.next();
-        }
-
-        let choices = match chunk.choices {
-            Some(c) => c,
-            None => return self.next(),
-        };
-
-        if choices.is_empty() {
-            return self.next();
-        }
-
-        let delta = match &choices[0].delta {
-            Some(d) => d,
-            None => return self.next(),
-        };
-
-        if let Some(ref text) = delta.content {
-            if !text.is_empty() {
-                self.text_buf.push_str(text);
-                return Some(Ok(StreamEvent::TextDelta(text.clone())));
-            }
-        }
-
-        if let Some(ref reasoning) = delta.reasoning_content {
-            if !reasoning.is_empty() {
-                self.reasoning_buf.push_str(reasoning);
-                return Some(Ok(StreamEvent::ReasoningDelta(reasoning.clone())));
-            }
-        }
-
-        if let Some(ref calls) = delta.tool_calls {
-            if calls.is_empty() {
-                return self.next();
-            }
-
-            for call in calls {
-                let idx = call.index.unwrap_or(0) as usize;
-
-                if let Some(ref id) = call.id {
-                    if idx >= self.tool_calls.len() {
-                        self.tool_calls.push(StreamToolCallAccumulator {
-                            id: Some(id.clone()),
-                            name: call.function.as_ref().and_then(|f| f.name.clone()).unwrap_or_default(),
-                            arguments_json: String::new(),
-                        });
-                    } else if self.tool_calls[idx].id.is_none() {
-                        self.tool_calls[idx].id = Some(id.clone());
-                    }
-                }
-
-                if let Some(ref func) = call.function {
-                    if let Some(ref args) = func.arguments {
-                        if idx < self.tool_calls.len() {
-                            self.tool_calls[idx].arguments_json.push_str(args);
-                        }
-                    }
-                    if let Some(ref name) = func.name {
-                        if idx < self.tool_calls.len() {
-                            return Some(Ok(StreamEvent::ToolCallDelta {
-                                index: idx,
-                                name: name.clone(),
-                            }));
-                        }
-                    }
-                }
-            }
-        }
-
-        if let Some(ref finish_reason) = choices[0].finish_reason {
-            if finish_reason == "stop" || finish_reason == "tool_calls" {
-                self.done = true;
-                return match self.build_complete_response() {
-                    Ok(resp) => Some(Ok(StreamEvent::Complete(resp))),
-                    Err(e) => Some(Err(ProviderError::InvalidResponse(e))),
-                };
-            }
-        }
-
-        self.next()
+        self.inner.next()
     }
 }
 

@@ -4,7 +4,7 @@ help:
 	@echo "Available targets:"
 	@echo "  make build   - Build release binary"
 	@echo "  make clean   - Remove build artifacts"
-	@echo "  make test    - Run tests"
+	@echo "  make test    - Run tests (single-threaded)"
 	@echo "  make lint    - Run clippy and fmt check"
 	@echo "  make check   - lint + test"
 	@echo "  make help    - Show this message"
@@ -18,7 +18,7 @@ clean:
 	rm -rf bin/ target/
 
 test:
-	cargo test
+	cargo test -- --test-threads=1
 
 lint:
 	cargo clippy -- -D warnings
